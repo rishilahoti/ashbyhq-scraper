@@ -1,4 +1,4 @@
-import { getPool } from "./db";
+import { query } from "./db";
 import { scoreJob } from "./scoring";
 import type {
   Job,
@@ -10,12 +10,33 @@ import type {
 
 const LIST_COLUMNS = `
   id, job_id, company, title, location, team, department,
-  employment_type, remote, apply_url, job_url, published_at,
-  scraped_at, compensation_summary, content_hash, is_active,
-  created_at, updated_at
+  employment_type, remote, description, apply_url, job_url,
+  published_at, scraped_at, compensation_summary, content_hash,
+  is_active, created_at, updated_at
 `;
 
-function rowToJob(row: JobRow, partial = false): Job {
+// --- In-memory cache ---
+
+interface CacheEntry<T> {
+  data: T;
+  expiresAt: number;
+}
+
+const cache = new Map<string, CacheEntry<unknown>>();
+
+function cached<T>(key: string, ttlMs: number, fn: () => Promise<T>): Promise<T> {
+  const hit = cache.get(key) as CacheEntry<T> | undefined;
+  if (hit && hit.expiresAt > Date.now()) return Promise.resolve(hit.data);
+
+  return fn().then((data) => {
+    cache.set(key, { data, expiresAt: Date.now() + ttlMs });
+    return data;
+  });
+}
+
+// --- Row mapping ---
+
+function rowToJob(row: JobRow): Job {
   return {
     id: row.id,
     jobId: row.job_id,
@@ -26,8 +47,8 @@ function rowToJob(row: JobRow, partial = false): Job {
     department: row.department,
     employmentType: row.employment_type,
     remote: Boolean(row.remote),
-    description: partial ? "" : (row.description ?? ""),
-    descriptionHtml: partial ? "" : (row.description_html ?? ""),
+    description: row.description ?? "",
+    descriptionHtml: row.description_html ?? "",
     applyUrl: row.apply_url,
     jobUrl: row.job_url,
     publishedAt: row.published_at
@@ -43,131 +64,115 @@ function rowToJob(row: JobRow, partial = false): Job {
   };
 }
 
+function stripForList(job: JobWithScore): JobWithScore {
+  return { ...job, description: "", descriptionHtml: "" };
+}
+
+// --- All scored jobs (cached) ---
+
+async function getAllScoredJobs(): Promise<JobWithScore[]> {
+  return cached("all_scored_jobs", 60_000, async () => {
+    const { rows } = await query<JobRow>(
+      `SELECT ${LIST_COLUMNS} FROM jobs WHERE is_active = TRUE ORDER BY published_at DESC`
+    );
+    return rows.map((r) => scoreJob(rowToJob(r)));
+  });
+}
+
+// --- Public API ---
+
 export async function getJobs(
   filters: JobFilters = {}
 ): Promise<PaginatedResult<JobWithScore>> {
-  const pool = getPool();
   const page = filters.page || 1;
   const limit = Math.min(filters.limit || 40, 100);
 
-  const wheres: string[] = ["is_active = TRUE"];
-  const params: (string | number | boolean)[] = [];
-  let paramIdx = 1;
+  let scored: JobWithScore[];
 
-  if (filters.company) {
-    wheres.push(`company = $${paramIdx}`);
-    params.push(filters.company);
-    paramIdx++;
-  }
+  const hasDbFilters =
+    filters.company || filters.remote !== undefined || filters.employmentType || filters.search;
 
-  if (filters.remote !== undefined) {
-    wheres.push(`remote = $${paramIdx}`);
-    params.push(filters.remote);
-    paramIdx++;
-  }
+  if (hasDbFilters) {
+    const wheres: string[] = ["is_active = TRUE"];
+    const params: (string | number | boolean)[] = [];
+    let idx = 1;
 
-  if (filters.employmentType) {
-    wheres.push(`employment_type = $${paramIdx}`);
-    params.push(filters.employmentType);
-    paramIdx++;
-  }
+    if (filters.company) {
+      wheres.push(`company = $${idx++}`);
+      params.push(filters.company);
+    }
+    if (filters.remote !== undefined) {
+      wheres.push(`remote = $${idx++}`);
+      params.push(filters.remote);
+    }
+    if (filters.employmentType) {
+      wheres.push(`employment_type = $${idx++}`);
+      params.push(filters.employmentType);
+    }
+    if (filters.search) {
+      wheres.push(`(title ILIKE $${idx} OR company ILIKE $${idx + 1})`);
+      const term = `%${filters.search}%`;
+      params.push(term, term);
+      idx += 2;
+    }
 
-  if (filters.search) {
-    wheres.push(
-      `(title ILIKE $${paramIdx} OR company ILIKE $${paramIdx + 1})`
-    );
-    const term = `%${filters.search}%`;
-    params.push(term, term);
-    paramIdx += 2;
-  }
-
-  const where = wheres.length ? `WHERE ${wheres.join(" AND ")}` : "";
-
-  if (filters.minScore !== undefined) {
-    const { rows } = await pool.query<JobRow>(
+    const where = `WHERE ${wheres.join(" AND ")}`;
+    const { rows } = await query<JobRow>(
       `SELECT ${LIST_COLUMNS} FROM jobs ${where} ORDER BY published_at DESC`,
       params
     );
-
-    let scored = rows.map((r) => scoreJob(rowToJob(r, true)));
-    scored = scored.filter((j) => j.score >= filters.minScore!);
-    scored.sort((a, b) => b.score - a.score);
-
-    const total = scored.length;
-    const offset = (page - 1) * limit;
-    const paginated = scored.slice(offset, offset + limit);
-
-    return { data: paginated, total, page, totalPages: Math.ceil(total / limit) };
+    scored = rows.map((r) => scoreJob(rowToJob(r)));
+  } else {
+    scored = await getAllScoredJobs();
   }
 
-  const countResult = await pool.query(
-    `SELECT COUNT(*)::int as total FROM jobs ${where}`,
-    params
-  );
-  const total: number = countResult.rows[0].total;
+  if (filters.minScore !== undefined) {
+    scored = scored.filter((j) => j.score >= filters.minScore!);
+  }
 
-  const offset = (page - 1) * limit;
-  const dataParams = [...params, limit, offset];
-  const { rows } = await pool.query<JobRow>(
-    `SELECT ${LIST_COLUMNS} FROM jobs ${where}
-     ORDER BY published_at DESC
-     LIMIT $${paramIdx} OFFSET $${paramIdx + 1}`,
-    dataParams
-  );
-
-  const scored = rows.map((r) => scoreJob(rowToJob(r, true)));
   scored.sort((a, b) => b.score - a.score);
 
-  return {
-    data: scored,
-    total,
-    page,
-    totalPages: Math.ceil(total / limit),
-  };
+  const total = scored.length;
+  const offset = (page - 1) * limit;
+  const paginated = scored.slice(offset, offset + limit).map(stripForList);
+
+  return { data: paginated, total, page, totalPages: Math.ceil(total / limit) };
 }
 
 export async function getJobById(jobId: string): Promise<JobWithScore | null> {
-  const pool = getPool();
-  const { rows } = await pool.query<JobRow>(
+  const { rows } = await query<JobRow>(
     "SELECT * FROM jobs WHERE job_id = $1",
     [jobId]
   );
-
   if (rows.length === 0) return null;
   return scoreJob(rowToJob(rows[0]));
 }
 
 export async function getJobsByIds(jobIds: string[]): Promise<JobWithScore[]> {
   if (jobIds.length === 0) return [];
-  const pool = getPool();
-
   const placeholders = jobIds.map((_, i) => `$${i + 1}`).join(", ");
-  const { rows } = await pool.query<JobRow>(
+  const { rows } = await query<JobRow>(
     `SELECT ${LIST_COLUMNS} FROM jobs WHERE job_id IN (${placeholders}) AND is_active = TRUE`,
     jobIds
   );
-
-  return rows.map((r) => scoreJob(rowToJob(r, true)));
+  return rows.map((r) => scoreJob(rowToJob(r))).map(stripForList);
 }
 
 export async function getCompanies(): Promise<string[]> {
-  const pool = getPool();
-  const { rows } = await pool.query<{ company: string }>(
-    "SELECT DISTINCT company FROM jobs WHERE is_active = TRUE ORDER BY company"
-  );
-  return rows.map((r) => r.company);
+  return cached("companies_list", 120_000, async () => {
+    const { rows } = await query<{ company: string }>(
+      "SELECT DISTINCT company FROM jobs WHERE is_active = TRUE ORDER BY company"
+    );
+    return rows.map((r) => r.company);
+  });
 }
 
-export async function getStats(): Promise<{
-  total: number;
-  companies: number;
-}> {
-  const pool = getPool();
-  const { rows } = await pool.query(`
-    SELECT
-      COUNT(*)::int as total,
-      COUNT(DISTINCT company)::int as companies
-    FROM jobs WHERE is_active = TRUE
-  `);
-  return rows[0];
+export async function getStats(): Promise<{ total: number; companies: number }> {
+  return cached("stats", 120_000, async () => {
+    const { rows } = await query(
+      `SELECT COUNT(*)::int as total, COUNT(DISTINCT company)::int as companies
+       FROM jobs WHERE is_active = TRUE`
+    );
+    return rows[0] as { total: number; companies: number };
+  });
 }

@@ -22,10 +22,10 @@ export default async function FeedPage({
   if (sp.employmentType) filters.employmentType = sp.employmentType;
   if (sp.page) filters.page = parseInt(sp.page, 10);
 
-  const [companies, stats, result] = await Promise.all([
+  const [result, companies, stats] = await Promise.all([
+    getJobs(filters),
     getCompanies(),
     getStats(),
-    getJobs(filters),
   ]);
 
   return (
