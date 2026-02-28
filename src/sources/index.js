@@ -17,8 +17,13 @@ function getEnabledCompanies() {
 }
 
 async function getEnabledCompaniesWithDb(pool) {
-  const registry = getEnabledCompanies();
-  const slugSet = new Set(registry.map(c => c.ashbySlug.toLowerCase()));
+  const allRegistry = loadRegistry();
+  const enabled = allRegistry.filter(c => c.enabled);
+
+  const enabledSlugs = new Set(enabled.map(c => c.ashbySlug.toLowerCase()));
+  const disabledSlugs = new Set(
+    allRegistry.filter(c => !c.enabled).map(c => c.ashbySlug.toLowerCase())
+  );
 
   try {
     const { rows } = await pool.query(
@@ -27,14 +32,15 @@ async function getEnabledCompaniesWithDb(pool) {
 
     let dbOnlyCount = 0;
     for (const row of rows) {
-      if (!slugSet.has(row.ashby_slug.toLowerCase())) {
-        registry.push({
+      const slug = row.ashby_slug.toLowerCase();
+      if (!enabledSlugs.has(slug) && !disabledSlugs.has(slug)) {
+        enabled.push({
           company: row.name,
           ashbySlug: row.ashby_slug,
           enabled: true,
           frequencyHours: 12,
         });
-        slugSet.add(row.ashby_slug.toLowerCase());
+        enabledSlugs.add(slug);
         dbOnlyCount++;
       }
     }
@@ -46,7 +52,7 @@ async function getEnabledCompaniesWithDb(pool) {
     logger.warn(`Could not read companies from DB, using registry only: ${err.message}`);
   }
 
-  return registry;
+  return enabled;
 }
 
 function addCompany(slug, name) {
