@@ -1,5 +1,6 @@
 import { Suspense } from "react";
-import { getJobs, getCompanies, getStats } from "@/lib/query";
+import { getJobs, getCompanies, getStats, getDepartments, getLocations } from "@/lib/query";
+import { POSITIVE_TAG_OPTIONS } from "@/lib/scoring";
 import type { JobFilters } from "@/lib/types";
 import JobList from "@/components/JobList";
 import Filters from "@/components/Filters";
@@ -20,12 +21,26 @@ export default async function FeedPage({
   if (sp.remote === "true") filters.remote = true;
   if (sp.minScore) filters.minScore = parseInt(sp.minScore, 10);
   if (sp.employmentType) filters.employmentType = sp.employmentType;
+  if (sp.department) filters.department = sp.department;
+  if (sp.team) filters.team = sp.team;
+  if (sp.location) filters.location = sp.location;
+  if (sp.tags) {
+    const allowed = new Set(POSITIVE_TAG_OPTIONS.map((t) => t.toLowerCase()));
+    filters.tags = sp.tags
+      .split(",")
+      .map((t) => t.trim().toLowerCase())
+      .filter((t) => t && allowed.has(t));
+      if (filters.tags.length === 0) delete filters.tags;
+  }
+  if (sp.sort) filters.sort = sp.sort as JobFilters["sort"];
   if (sp.page) filters.page = parseInt(sp.page, 10);
 
-  const [result, companies, stats] = await Promise.all([
+  const [result, companies, stats, departments, locations] = await Promise.all([
     getJobs(filters),
     getCompanies(),
     getStats(),
+    getDepartments(),
+    getLocations(),
   ]);
 
   return (
@@ -39,7 +54,12 @@ export default async function FeedPage({
       </div>
 
       <Suspense fallback={null}>
-        <Filters companies={companies} />
+        <Filters
+          companies={companies}
+          departments={departments}
+          locations={locations}
+          tagOptions={POSITIVE_TAG_OPTIONS}
+        />
       </Suspense>
 
       <div className="mt-2">

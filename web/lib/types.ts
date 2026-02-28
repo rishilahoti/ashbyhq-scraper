@@ -33,6 +33,11 @@ export interface JobFilters {
   remote?: boolean;
   minScore?: number;
   employmentType?: string;
+  department?: string;
+  team?: string;
+  location?: string;
+  tags?: string[];
+  sort?: "score" | "newest" | "oldest";
   page?: number;
   limit?: number;
 }
