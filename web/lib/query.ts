@@ -68,6 +68,50 @@ function stripForList(job: JobWithScore): JobWithScore {
   return { ...job, description: "", descriptionHtml: "" };
 }
 
+function dedupeRowsByJobId(rows: JobRow[], preferredCompany: string): JobRow[] {
+  const preferred = preferredCompany.trim().toLowerCase();
+  const byId = new Map<string, JobRow>();
+  for (const r of rows) {
+    const id = r.job_id;
+    const existing = byId.get(id);
+    if (!existing) {
+      byId.set(id, r);
+    } else {
+      const rMatch = r.company?.trim().toLowerCase() === preferred;
+      const exMatch = existing.company?.trim().toLowerCase() === preferred;
+      if (rMatch && !exMatch) byId.set(id, r);
+    }
+  }
+  const canonical = preferredCompany.trim();
+  return Array.from(byId.values()).map((r) =>
+    r.company?.trim().toLowerCase() === preferred ? r : { ...r, company: canonical }
+  );
+}
+
+async function getCanonicalCompanyNameMap(): Promise<Map<string, string>> {
+  return cached("canonical_company_names", 120_000, async () => {
+    const { rows } = await query<{ name: string }>("SELECT name FROM companies");
+    const map = new Map<string, string>();
+    for (const r of rows) {
+      const n = r.name?.trim();
+      if (n) map.set(n.toLowerCase(), n);
+    }
+    return map;
+  });
+}
+
+function applyCanonicalCompanyNames(
+  jobs: JobWithScore[],
+  map: Map<string, string>
+): void {
+  for (const j of jobs) {
+    const key = j.company?.trim().toLowerCase();
+    if (key && map.has(key)) {
+      j.company = map.get(key)!;
+    }
+  }
+}
+
 // --- All scored jobs (cached) ---
 
 async function getAllScoredJobs(): Promise<JobWithScore[]> {
@@ -104,8 +148,9 @@ export async function getJobs(
     let idx = 1;
 
     if (filters.company) {
-      wheres.push(`company = $${idx++}`);
+      wheres.push(`LOWER(TRIM(company)) = LOWER(TRIM($${idx}))`);
       params.push(filters.company);
+      idx++;
     }
     if (filters.remote !== undefined) {
       wheres.push(`remote = $${idx++}`);
@@ -135,10 +180,24 @@ export async function getJobs(
     }
 
     const where = `WHERE ${wheres.join(" AND ")}`;
-    const { rows } = await query<JobRow>(
-      `SELECT ${LIST_COLUMNS} FROM jobs ${where} ORDER BY published_at DESC`,
+    const companyParamIndex = filters.company ? 1 : 0;
+    const orderBy =
+      filters.company
+        ? `ORDER BY job_id, CASE WHEN TRIM(company) = TRIM($${companyParamIndex}) THEN 0 ELSE 1 END, published_at DESC NULLS LAST`
+        : "ORDER BY published_at DESC";
+    const { rows: rawRows } = await query<JobRow>(
+      `SELECT ${LIST_COLUMNS} FROM jobs ${where} ${orderBy}`,
       params
     );
+    const canonicalMap = await getCanonicalCompanyNameMap();
+    const displayName =
+      filters.company
+        ? canonicalMap.get(filters.company.trim().toLowerCase()) ?? filters.company.trim()
+        : "";
+    const rows =
+      filters.company
+        ? dedupeRowsByJobId(rawRows, displayName)
+        : rawRows;
     scored = rows.map((r) => scoreJob(rowToJob(r)));
   } else {
     scored = await getAllScoredJobs();
@@ -173,6 +232,9 @@ export async function getJobs(
       scored.sort((a, b) => b.score - a.score);
   }
 
+  const canonicalMapForDisplay = await getCanonicalCompanyNameMap();
+  applyCanonicalCompanyNames(scored, canonicalMapForDisplay);
+
   const total = scored.length;
   const offset = (page - 1) * limit;
   const paginated = scored.slice(offset, offset + limit).map(stripForList);
@@ -201,17 +263,34 @@ export async function getJobsByIds(jobIds: string[]): Promise<JobWithScore[]> {
 
 export async function getCompanies(): Promise<string[]> {
   return cached("companies_list", 120_000, async () => {
-    const { rows } = await query<{ company: string }>(
-      "SELECT DISTINCT company FROM jobs WHERE is_active = TRUE ORDER BY company"
+    const [companiesRes, jobsRes] = await Promise.all([
+      query<{ name: string }>("SELECT name FROM companies ORDER BY name"),
+      query<{ company: string }>(
+        "SELECT DISTINCT company FROM jobs WHERE is_active = TRUE ORDER BY company"
+      ),
+    ]);
+    const companiesRows = companiesRes.rows;
+    const jobsRows = jobsRes.rows;
+    const canonicalByLower = new Map<string, string>();
+    for (const r of jobsRows) {
+      const raw = r.company.trim();
+      const k = raw.toLowerCase();
+      if (!k) continue;
+      const fromDb = companiesRows.find((c: { name: string }) => c.name.trim().toLowerCase() === k);
+      const canonical = fromDb ? fromDb.name.trim() : raw;
+      if (!canonicalByLower.has(k)) canonicalByLower.set(k, canonical);
+    }
+    return Array.from(canonicalByLower.values()).sort((a, b) =>
+      a.localeCompare(b, undefined, { sensitivity: "base" })
     );
-    return rows.map((r) => r.company);
   });
 }
 
 export async function getStats(): Promise<{ total: number; companies: number }> {
   return cached("stats", 120_000, async () => {
     const { rows } = await query(
-      `SELECT COUNT(*)::int as total, COUNT(DISTINCT company)::int as companies
+      `SELECT COUNT(*)::int as total,
+              COUNT(DISTINCT LOWER(TRIM(company)))::int as companies
        FROM jobs WHERE is_active = TRUE`
     );
     return rows[0] as { total: number; companies: number };

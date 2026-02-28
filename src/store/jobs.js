@@ -36,7 +36,24 @@ async function upsertJob(job) {
         $7, $8, $9, $10,
         $11, $12, $13, $14,
         $15, $16, TRUE
-      )`,
+      )
+      ON CONFLICT (company, job_id) DO UPDATE SET
+        title = EXCLUDED.title,
+        location = EXCLUDED.location,
+        team = EXCLUDED.team,
+        department = EXCLUDED.department,
+        employment_type = EXCLUDED.employment_type,
+        remote = EXCLUDED.remote,
+        description = EXCLUDED.description,
+        description_html = EXCLUDED.description_html,
+        apply_url = EXCLUDED.apply_url,
+        job_url = EXCLUDED.job_url,
+        published_at = EXCLUDED.published_at,
+        scraped_at = EXCLUDED.scraped_at,
+        compensation_summary = EXCLUDED.compensation_summary,
+        content_hash = EXCLUDED.content_hash,
+        is_active = TRUE,
+        updated_at = NOW()`,
       [
         job.jobId, job.company, job.title, job.location, job.team, job.department,
         job.employmentType, !!job.remote, job.description, job.descriptionHtml,
