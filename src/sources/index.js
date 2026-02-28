@@ -16,6 +16,39 @@ function getEnabledCompanies() {
   return enabled;
 }
 
+async function getEnabledCompaniesWithDb(pool) {
+  const registry = getEnabledCompanies();
+  const slugSet = new Set(registry.map(c => c.ashbySlug.toLowerCase()));
+
+  try {
+    const { rows } = await pool.query(
+      'SELECT name, ashby_slug FROM companies'
+    );
+
+    let dbOnlyCount = 0;
+    for (const row of rows) {
+      if (!slugSet.has(row.ashby_slug.toLowerCase())) {
+        registry.push({
+          company: row.name,
+          ashbySlug: row.ashby_slug,
+          enabled: true,
+          frequencyHours: 12,
+        });
+        slugSet.add(row.ashby_slug.toLowerCase());
+        dbOnlyCount++;
+      }
+    }
+
+    if (dbOnlyCount > 0) {
+      logger.info(`Discovered ${dbOnlyCount} companies from DB not in registry`);
+    }
+  } catch (err) {
+    logger.warn(`Could not read companies from DB, using registry only: ${err.message}`);
+  }
+
+  return registry;
+}
+
 function addCompany(slug, name) {
   const registry = loadRegistry();
   const exists = registry.find(c => c.ashbySlug.toLowerCase() === slug.toLowerCase());
@@ -36,8 +69,8 @@ function addCompany(slug, name) {
   return true;
 }
 
-function getDueCompanies(companiesLastScraped) {
-  const enabled = getEnabledCompanies();
+function getDueCompanies(companiesLastScraped, allCompanies) {
+  const enabled = allCompanies || getEnabledCompanies();
   const now = Date.now();
 
   return enabled.filter(company => {
@@ -48,4 +81,4 @@ function getDueCompanies(companiesLastScraped) {
   });
 }
 
-module.exports = { loadRegistry, getEnabledCompanies, addCompany, getDueCompanies };
+module.exports = { loadRegistry, getEnabledCompanies, getEnabledCompaniesWithDb, addCompany, getDueCompanies };

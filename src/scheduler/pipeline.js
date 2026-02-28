@@ -1,6 +1,6 @@
 const config = require('../config');
 const { logger, jitteredDelay } = require('../utils');
-const { getEnabledCompanies, getDueCompanies } = require('../sources');
+const { getEnabledCompaniesWithDb, getDueCompanies } = require('../sources');
 const { fetchJobBoard, FetchError } = require('../fetch');
 const { normalizeResponse } = require('../normalize');
 const store = require('../store');
@@ -14,8 +14,10 @@ async function runPipeline() {
 
   await store.initDb();
 
+  const pool = store.getPool();
+  const allCompanies = await getEnabledCompaniesWithDb(pool);
   const lastScraped = await store.getAllCompaniesLastScraped();
-  const companies = getDueCompanies(lastScraped);
+  const companies = getDueCompanies(lastScraped, allCompanies);
 
   if (companies.length === 0) {
     logger.info('No companies due for scraping');

@@ -20,18 +20,33 @@ export default function Header() {
           <NavLink href="/" label="Feed" />
           <NavLink href="/applied" label="Applied" count={appliedCount} />
           <NavLink href="/ignored" label="Ignored" count={ignoredCount} />
+          <NavLink href="/add" label="+ Add" accent />
         </nav>
       </div>
     </header>
   );
 }
 
-function NavLink({ href, label, count }: { href: string; label: string; count?: number }) {
+function NavLink({
+  href,
+  label,
+  count,
+  accent,
+}: {
+  href: string;
+  label: string;
+  count?: number;
+  accent?: boolean;
+}) {
   return (
     <Link
       href={href}
-      className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium
-                 text-ink-secondary hover:text-ink hover:bg-surface transition-colors"
+      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors
+        ${
+          accent
+            ? "text-signal hover:text-signal/80 hover:bg-signal-soft"
+            : "text-ink-secondary hover:text-ink hover:bg-surface"
+        }`}
     >
       <span>{label}</span>
       {count !== undefined && count > 0 && (
