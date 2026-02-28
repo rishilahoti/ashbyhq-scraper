@@ -28,6 +28,12 @@ const rules: Rules = {
   freshnessBoost: 8,
 };
 
+/** Tag options for filter UI: keywords with positive weight, sorted */
+export const POSITIVE_TAG_OPTIONS: string[] = Object.entries(rules.keywords)
+  .filter(([, w]) => w > 0)
+  .map(([k]) => k)
+  .sort();
+
 export function scoreJob(job: Job): JobWithScore {
   let score = 0;
   const matchedKeywords: string[] = [];

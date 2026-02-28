@@ -3,7 +3,17 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback } from "react";
 
-export default function Filters({ companies }: { companies: string[] }) {
+export default function Filters({
+  companies,
+  departments,
+  locations,
+  tagOptions,
+}: {
+  companies: string[];
+  departments: string[];
+  locations: string[];
+  tagOptions: string[];
+}) {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -25,12 +35,50 @@ export default function Filters({ companies }: { companies: string[] }) {
     search: searchParams.get("search") || "",
     company: searchParams.get("company") || "",
     remote: searchParams.get("remote") || "",
-    minScore: searchParams.get("minScore") || "",
     employmentType: searchParams.get("employmentType") || "",
+    department: searchParams.get("department") || "",
+    location: searchParams.get("location") || "",
+    tags: (searchParams.get("tags") || "")
+      .split(",")
+      .map((t) => t.trim().toLowerCase())
+      .filter(Boolean),
+    sort: searchParams.get("sort") || "score",
+  };
+
+  const hasAnyFilter =
+    current.search ||
+    current.company ||
+    current.remote ||
+    current.employmentType ||
+    current.department ||
+    current.location ||
+    current.tags.length > 0 ||
+    current.sort !== "score";
+
+  const setTags = useCallback(
+    (tags: string[]) => {
+      const params = new URLSearchParams(searchParams.toString());
+      if (tags.length > 0) {
+        params.set("tags", tags.join(","));
+      } else {
+        params.delete("tags");
+      }
+      params.delete("page");
+      router.push(`?${params.toString()}`);
+    },
+    [router, searchParams],
+  );
+
+  const setTagFromDropdown = (tag: string) => {
+    if (!tag) setTags([]);
+    else setTags([tag.toLowerCase()]);
   };
 
   return (
-    <div className="flex flex-wrap items-center gap-2 py-4 border-b border-edge">
+    <div
+      className="flex flex-wrap justify-start items-start gap-2 pt-4 border-b border-edge"
+      style={{ paddingBottom: "15px" }}
+    >
       {/* Search */}
       <input
         type="text"
@@ -39,17 +87,14 @@ export default function Filters({ companies }: { companies: string[] }) {
         onKeyDown={(e) => {
           if (e.key === "Enter") setParam("search", e.currentTarget.value);
         }}
-        className="h-8 px-3 text-sm bg-surface border border-edge rounded-md
-                   placeholder:text-ink-muted focus:outline-none focus:border-edge-strong
-                   focus:ring-1 focus:ring-edge-strong w-56 font-body"
+        className="h-8 px-3 text-sm bg-surface border border-edge rounded-md placeholder:text-ink-muted focus:outline-none focus:border-edge-strong focus:ring-1 focus:ring-edge-strong w-56 font-body"
       />
 
       {/* Company */}
       <select
         value={current.company}
         onChange={(e) => setParam("company", e.target.value)}
-        className="h-8 px-2 text-sm bg-surface border border-edge rounded-md
-                   text-ink-secondary focus:outline-none focus:border-edge-strong cursor-pointer"
+        className="h-8 max-w-[130px] px-2 text-sm bg-surface border border-edge rounded-md text-ink-secondary focus:outline-none focus:border-edge-strong cursor-pointer"
       >
         <option value="">All companies</option>
         {companies.map((c) => (
@@ -57,14 +102,51 @@ export default function Filters({ companies }: { companies: string[] }) {
         ))}
       </select>
 
+      {/* Department */}
+      <select
+        value={current.department}
+        onChange={(e) => setParam("department", e.target.value)}
+        className="h-8 max-w-[130px] px-2 text-sm bg-surface border border-edge rounded-md text-ink-secondary focus:outline-none focus:border-edge-strong cursor-pointer"
+      >
+        <option value="">All departments</option>
+        {departments.map((d) => (
+          <option key={d} value={d}>{d}</option>
+        ))}
+      </select>
+
+      {/* Location */}
+      <select
+        value={current.location}
+        onChange={(e) => setParam("location", e.target.value)}
+        className="h-8 max-w-[130px] px-2 text-sm bg-surface border border-edge rounded-md
+                   text-ink-secondary focus:outline-none focus:border-edge-strong cursor-pointer"
+      >
+        <option value="">All locations</option>
+        {locations.map((loc) => (
+          <option key={loc} value={loc}>{loc}</option>
+        ))}
+      </select>
+
+      {/* Tags dropdown — single selection */}
+      <select
+        value={current.tags[0] ?? ""}
+        onChange={(e) => setTagFromDropdown(e.target.value)}
+        className="h-8 max-w-[130px] px-2 text-sm bg-surface border border-edge rounded-md
+                   text-ink-secondary focus:outline-none focus:border-edge-strong cursor-pointer"
+      >
+        <option value="">All tags</option>
+        {tagOptions.map((tag) => (
+          <option key={tag} value={tag}>{tag}</option>
+        ))}
+      </select>
+
       {/* Remote Toggle */}
       <button
         onClick={() => setParam("remote", current.remote === "true" ? "" : "true")}
-        className={`h-8 px-3 text-xs font-mono rounded-md border transition-colors cursor-pointer
-          ${
-            current.remote === "true"
-              ? "bg-ink text-paper border-ink"
-              : "bg-surface border-edge text-ink-secondary hover:border-edge-strong"
+        className={`h-8 max-w-[130px] px-3 text-xs font-mono rounded-md border transition-colors cursor-pointer
+          ${current.remote === "true"
+            ? "bg-ink text-paper border-ink"
+            : "bg-surface border-edge text-ink-secondary hover:border-edge-strong"
           }`}
       >
         REMOTE
@@ -74,7 +156,7 @@ export default function Filters({ companies }: { companies: string[] }) {
       <select
         value={current.employmentType}
         onChange={(e) => setParam("employmentType", e.target.value)}
-        className="h-8 px-2 text-sm bg-surface border border-edge rounded-md
+        className="h-8 max-w-[130px] px-2 text-sm bg-surface border border-edge rounded-md
                    text-ink-secondary focus:outline-none focus:border-edge-strong cursor-pointer"
       >
         <option value="">All types</option>
@@ -84,22 +166,20 @@ export default function Filters({ companies }: { companies: string[] }) {
         <option value="PartTime">Part Time</option>
       </select>
 
-      {/* Min Score */}
+      {/* Sort: only Score, Newest, Oldest */}
       <select
-        value={current.minScore}
-        onChange={(e) => setParam("minScore", e.target.value)}
-        className="h-8 px-2 text-sm bg-surface border border-edge rounded-md
-                   text-ink-secondary focus:outline-none focus:border-edge-strong cursor-pointer font-mono"
+        value={current.sort}
+        onChange={(e) => setParam("sort", e.target.value)}
+        className="h-8 max-w-[130px] px-2 text-sm bg-surface border border-edge rounded-md
+                   text-ink-secondary focus:outline-none focus:border-edge-strong cursor-pointer"
       >
-        <option value="">Any score</option>
-        <option value="10">&ge; 10</option>
-        <option value="25">&ge; 25</option>
-        <option value="50">&ge; 50</option>
-        <option value="75">&ge; 75</option>
+        <option value="score">Score</option>
+        <option value="newest">Newest first</option>
+        <option value="oldest">Oldest first</option>
       </select>
 
       {/* Clear */}
-      {Object.values(current).some(Boolean) && (
+      {hasAnyFilter && (
         <button
           onClick={() => router.push("?")}
           className="h-8 px-3 text-xs text-ink-muted hover:text-ink transition-colors cursor-pointer"

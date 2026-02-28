@@ -55,9 +55,27 @@ async function getEnabledCompaniesWithDb(pool) {
   return enabled;
 }
 
+const SLUG_MAX_LEN = 128;
+const SLUG_REGEX = /^[a-zA-Z0-9_-]+$/;
+
+function isValidSlug(slug) {
+  return (
+    typeof slug === 'string' &&
+    slug.length > 0 &&
+    slug.length <= SLUG_MAX_LEN &&
+    SLUG_REGEX.test(slug)
+  );
+}
+
 function addCompany(slug, name) {
+  if (!isValidSlug(slug)) {
+    logger.warn(`Invalid slug rejected: "${slug}" (alphanumeric, hyphen, underscore only; max ${SLUG_MAX_LEN} chars)`);
+    return false;
+  }
+
+  const normalizedSlug = slug.toLowerCase();
   const registry = loadRegistry();
-  const exists = registry.find(c => c.ashbySlug.toLowerCase() === slug.toLowerCase());
+  const exists = registry.find(c => c.ashbySlug.toLowerCase() === normalizedSlug);
   if (exists) {
     logger.warn(`Company with slug "${slug}" already exists`);
     return false;
@@ -65,13 +83,13 @@ function addCompany(slug, name) {
 
   registry.push({
     company: name || slug,
-    ashbySlug: slug,
+    ashbySlug: normalizedSlug,
     enabled: true,
     frequencyHours: 12,
   });
 
   fs.writeFileSync(REGISTRY_PATH, JSON.stringify(registry, null, 2) + '\n', 'utf-8');
-  logger.info(`Added company "${name || slug}" (${slug}) to registry`);
+  logger.info(`Added company "${name || slug}" (${normalizedSlug}) to registry`);
   return true;
 }
 

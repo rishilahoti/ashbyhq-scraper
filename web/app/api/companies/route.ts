@@ -16,9 +16,9 @@ function extractSlug(input: string): string | null {
   const urlMatch = trimmed.match(
     /(?:https?:\/\/)?jobs\.ashbyhq\.com\/([a-zA-Z0-9_-]+)/
   );
-  if (urlMatch) return urlMatch[1];
+  if (urlMatch) return urlMatch[1].toLowerCase();
 
-  if (/^[a-zA-Z0-9_-]+$/.test(trimmed)) return trimmed;
+  if (/^[a-zA-Z0-9_-]+$/.test(trimmed)) return trimmed.toLowerCase();
 
   return null;
 }
@@ -90,12 +90,13 @@ export async function POST(request: NextRequest) {
 
     const pool = getPool();
 
-    const existing = await pool.query(
-      "SELECT ashby_slug FROM companies WHERE ashby_slug = $1",
+    // Case-insensitive: find existing company by slug so we reuse its name and avoid duplicates
+    const existingBySlug = await pool.query(
+      "SELECT id, name, ashby_slug FROM companies WHERE LOWER(ashby_slug) = LOWER($1)",
       [slug]
     );
-
-    const alreadyExists = existing.rows.length > 0;
+    const existingRow = existingBySlug.rows[0];
+    const alreadyExists = !!existingRow;
 
     const ashbyRes = await fetch(
       `${ASHBY_BASE}/${slug}?includeCompensation=true`,
@@ -128,12 +129,24 @@ export async function POST(request: NextRequest) {
     const companyName =
       data.jobBoard?.title || slug.charAt(0).toUpperCase() + slug.slice(1);
 
-    await pool.query(
-      `INSERT INTO companies (name, ashby_slug, last_scraped_at)
-       VALUES ($1, $2, NOW())
-       ON CONFLICT (ashby_slug) DO UPDATE SET name = EXCLUDED.name, last_scraped_at = NOW()`,
-      [companyName, slug]
-    );
+    // Use existing company name if we already have this slug (keeps "OpenAI" instead of creating "Openai")
+    const canonicalName = existingRow?.name ?? companyName;
+
+    if (existingRow) {
+      await pool.query(
+        "UPDATE companies SET last_scraped_at = NOW() WHERE id = $1",
+        [existingRow.id]
+      );
+    } else {
+      await pool.query(
+        `INSERT INTO companies (name, ashby_slug, last_scraped_at)
+         VALUES ($1, $2, NOW())`,
+        [canonicalName, slug]
+      );
+    }
+
+    // Use the canonical name for all job operations (existing row's name or the one we just set)
+    const companyNameForJobs = existingRow?.name ?? canonicalName;
 
     const listedJobs: AshbyJob[] = data.jobs.filter(
       (j: AshbyJob) => j.isListed !== false
@@ -166,7 +179,7 @@ export async function POST(request: NextRequest) {
 
       const existingJob = await pool.query(
         "SELECT content_hash FROM jobs WHERE company = $1 AND job_id = $2",
-        [companyName, jobId]
+        [companyNameForJobs, jobId]
       );
 
       if (existingJob.rows.length === 0) {
@@ -181,10 +194,27 @@ export async function POST(request: NextRequest) {
             $7, $8, $9, $10,
             $11, $12, $13, NOW(),
             $14, $15, TRUE
-          )`,
+          )
+          ON CONFLICT (company, job_id) DO UPDATE SET
+            title = EXCLUDED.title,
+            location = EXCLUDED.location,
+            team = EXCLUDED.team,
+            department = EXCLUDED.department,
+            employment_type = EXCLUDED.employment_type,
+            remote = EXCLUDED.remote,
+            description = EXCLUDED.description,
+            description_html = EXCLUDED.description_html,
+            apply_url = EXCLUDED.apply_url,
+            job_url = EXCLUDED.job_url,
+            published_at = EXCLUDED.published_at,
+            scraped_at = NOW(),
+            compensation_summary = EXCLUDED.compensation_summary,
+            content_hash = EXCLUDED.content_hash,
+            is_active = TRUE,
+            updated_at = NOW()`,
           [
             jobId,
-            companyName,
+            companyNameForJobs,
             raw.title || "Untitled",
             raw.location || "Unknown",
             raw.team || null,
@@ -224,7 +254,7 @@ export async function POST(request: NextRequest) {
             raw.publishedAt || new Date().toISOString(),
             compensationSummary,
             hash,
-            companyName,
+            companyNameForJobs,
             jobId,
           ]
         );
@@ -233,7 +263,7 @@ export async function POST(request: NextRequest) {
         await pool.query(
           `UPDATE jobs SET scraped_at = NOW(), is_active = TRUE, updated_at = NOW()
            WHERE company = $1 AND job_id = $2`,
-          [companyName, jobId]
+          [companyNameForJobs, jobId]
         );
         unchanged++;
       }
@@ -241,7 +271,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      company: companyName,
+      company: companyNameForJobs,
       slug,
       alreadyExisted: alreadyExists,
       jobs: {
@@ -268,7 +298,19 @@ export async function GET() {
        GROUP BY c.id, c.name, c.ashby_slug, c.last_scraped_at
        ORDER BY c.name`
     );
-    return NextResponse.json({ companies: rows });
+    // Deduplicate by lowercase slug so "OpenAI" and "openai" show as one company (keep first by name)
+    const bySlug = new Map<string, (typeof rows)[0]>();
+    for (const r of rows) {
+      const key = r.ashby_slug.toLowerCase();
+      if (!bySlug.has(key)) bySlug.set(key, r);
+      else {
+        const existing = bySlug.get(key)!;
+        const existingJobCount = Number(existing.job_count) || 0;
+        const rJobCount = Number(r.job_count) || 0;
+        if (rJobCount > existingJobCount) bySlug.set(key, r);
+      }
+    }
+    return NextResponse.json({ companies: Array.from(bySlug.values()) });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
     return NextResponse.json({ error: message }, { status: 500 });

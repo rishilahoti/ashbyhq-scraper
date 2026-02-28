@@ -22,6 +22,24 @@
   --color-muted-soft: #F5F5F4;
 }
 
+/* Dark theme (class on html) */
+.dark {
+  --color-paper: #0C0A09;
+  --color-surface: #1C1917;
+  --color-surface-hover: #292524;
+  --color-ink: #FAFAF9;
+  --color-ink-secondary: #A8A29E;
+  --color-ink-muted: #78716C;
+  --color-edge: #292524;
+  --color-edge-strong: #44403C;
+  --color-signal: #F97316;
+  --color-signal-soft: #431407;
+  --color-signal-muted: #EA580C;
+  --color-positive: #22C55E;
+  --color-positive-soft: #14532D;
+  --color-muted-soft: #1C1917;
+}
+
 * {
   padding: 3px;
   box-sizing: border-box;

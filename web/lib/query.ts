@@ -90,7 +90,13 @@ export async function getJobs(
   let scored: JobWithScore[];
 
   const hasDbFilters =
-    filters.company || filters.remote !== undefined || filters.employmentType || filters.search;
+    filters.company ||
+    filters.remote !== undefined ||
+    filters.employmentType ||
+    filters.search ||
+    filters.department ||
+    filters.team ||
+    filters.location;
 
   if (hasDbFilters) {
     const wheres: string[] = ["is_active = TRUE"];
@@ -108,6 +114,18 @@ export async function getJobs(
     if (filters.employmentType) {
       wheres.push(`employment_type = $${idx++}`);
       params.push(filters.employmentType);
+    }
+    if (filters.department) {
+      wheres.push(`department ILIKE $${idx++}`);
+      params.push(`%${filters.department}%`);
+    }
+    if (filters.team) {
+      wheres.push(`team ILIKE $${idx++}`);
+      params.push(`%${filters.team}%`);
+    }
+    if (filters.location) {
+      wheres.push(`location = $${idx++}`);
+      params.push(filters.location);
     }
     if (filters.search) {
       wheres.push(`(title ILIKE $${idx} OR company ILIKE $${idx + 1})`);
@@ -130,7 +148,30 @@ export async function getJobs(
     scored = scored.filter((j) => j.score >= filters.minScore!);
   }
 
-  scored.sort((a, b) => b.score - a.score);
+  if (filters.tags && filters.tags.length > 0) {
+    const tagsLower = filters.tags.map((t) => t.toLowerCase());
+    scored = scored.filter((j) =>
+      tagsLower.every((tag) =>
+        j.matchedKeywords.some((k) => k.toLowerCase() === tag)
+      )
+    );
+  }
+
+  const sortBy = filters.sort || "score";
+  switch (sortBy) {
+    case "newest":
+      scored.sort(
+        (a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime()
+      );
+      break;
+    case "oldest":
+      scored.sort(
+        (a, b) => new Date(a.publishedAt).getTime() - new Date(b.publishedAt).getTime()
+      );
+      break;
+    default:
+      scored.sort((a, b) => b.score - a.score);
+  }
 
   const total = scored.length;
   const offset = (page - 1) * limit;
@@ -174,5 +215,27 @@ export async function getStats(): Promise<{ total: number; companies: number }> 
        FROM jobs WHERE is_active = TRUE`
     );
     return rows[0] as { total: number; companies: number };
+  });
+}
+
+export async function getDepartments(): Promise<string[]> {
+  return cached("departments_list", 120_000, async () => {
+    const { rows } = await query<{ department: string }>(
+      `SELECT DISTINCT department FROM jobs
+       WHERE is_active = TRUE AND department IS NOT NULL AND department != ''
+       ORDER BY department`
+    );
+    return rows.map((r) => r.department);
+  });
+}
+
+export async function getLocations(): Promise<string[]> {
+  return cached("locations_list", 120_000, async () => {
+    const { rows } = await query<{ location: string }>(
+      `SELECT DISTINCT location FROM jobs
+       WHERE is_active = TRUE AND location IS NOT NULL AND TRIM(location) != ''
+       ORDER BY location`
+    );
+    return rows.map((r) => r.location);
   });
 }
