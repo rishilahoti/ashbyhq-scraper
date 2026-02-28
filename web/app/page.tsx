@@ -5,14 +5,14 @@ import JobList from "@/components/JobList";
 import Filters from "@/components/Filters";
 import Pagination from "@/components/Pagination";
 
+export const revalidate = 300;
+
 export default async function FeedPage({
   searchParams,
 }: {
   searchParams: Promise<Record<string, string | undefined>>;
 }) {
   const sp = await searchParams;
-  const companies = await getCompanies();
-  const stats = await getStats();
 
   const filters: JobFilters = {};
   if (sp.search) filters.search = sp.search;
@@ -22,11 +22,14 @@ export default async function FeedPage({
   if (sp.employmentType) filters.employmentType = sp.employmentType;
   if (sp.page) filters.page = parseInt(sp.page, 10);
 
-  const result = await getJobs(filters);
+  const [companies, stats, result] = await Promise.all([
+    getCompanies(),
+    getStats(),
+    getJobs(filters),
+  ]);
 
   return (
     <div>
-      {/* Stats bar */}
       <div className="flex items-baseline gap-6 mb-1">
         <h1 className="font-display text-xl font-bold tracking-tight">Job Feed</h1>
         <div className="flex gap-4">

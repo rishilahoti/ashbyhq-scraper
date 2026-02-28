@@ -8,7 +8,14 @@ import type {
   PaginatedResult,
 } from "./types";
 
-function rowToJob(row: JobRow): Job {
+const LIST_COLUMNS = `
+  id, job_id, company, title, location, team, department,
+  employment_type, remote, apply_url, job_url, published_at,
+  scraped_at, compensation_summary, content_hash, is_active,
+  created_at, updated_at
+`;
+
+function rowToJob(row: JobRow, partial = false): Job {
   return {
     id: row.id,
     jobId: row.job_id,
@@ -19,8 +26,8 @@ function rowToJob(row: JobRow): Job {
     department: row.department,
     employmentType: row.employment_type,
     remote: Boolean(row.remote),
-    description: row.description,
-    descriptionHtml: row.description_html,
+    description: partial ? "" : (row.description ?? ""),
+    descriptionHtml: partial ? "" : (row.description_html ?? ""),
     applyUrl: row.apply_url,
     jobUrl: row.job_url,
     publishedAt: row.published_at
@@ -67,34 +74,52 @@ export async function getJobs(
 
   if (filters.search) {
     wheres.push(
-      `(title ILIKE $${paramIdx} OR description ILIKE $${paramIdx + 1} OR company ILIKE $${paramIdx + 2})`
+      `(title ILIKE $${paramIdx} OR company ILIKE $${paramIdx + 1})`
     );
     const term = `%${filters.search}%`;
-    params.push(term, term, term);
-    paramIdx += 3;
+    params.push(term, term);
+    paramIdx += 2;
   }
 
   const where = wheres.length ? `WHERE ${wheres.join(" AND ")}` : "";
 
-  const { rows } = await pool.query<JobRow>(
-    `SELECT * FROM jobs ${where} ORDER BY published_at DESC`,
-    params
-  );
-
-  let scored = rows.map(rowToJob).map(scoreJob);
-
   if (filters.minScore !== undefined) {
+    const { rows } = await pool.query<JobRow>(
+      `SELECT ${LIST_COLUMNS} FROM jobs ${where} ORDER BY published_at DESC`,
+      params
+    );
+
+    let scored = rows.map((r) => scoreJob(rowToJob(r, true)));
     scored = scored.filter((j) => j.score >= filters.minScore!);
+    scored.sort((a, b) => b.score - a.score);
+
+    const total = scored.length;
+    const offset = (page - 1) * limit;
+    const paginated = scored.slice(offset, offset + limit);
+
+    return { data: paginated, total, page, totalPages: Math.ceil(total / limit) };
   }
 
+  const countResult = await pool.query(
+    `SELECT COUNT(*)::int as total FROM jobs ${where}`,
+    params
+  );
+  const total: number = countResult.rows[0].total;
+
+  const offset = (page - 1) * limit;
+  const dataParams = [...params, limit, offset];
+  const { rows } = await pool.query<JobRow>(
+    `SELECT ${LIST_COLUMNS} FROM jobs ${where}
+     ORDER BY published_at DESC
+     LIMIT $${paramIdx} OFFSET $${paramIdx + 1}`,
+    dataParams
+  );
+
+  const scored = rows.map((r) => scoreJob(rowToJob(r, true)));
   scored.sort((a, b) => b.score - a.score);
 
-  const total = scored.length;
-  const offset = (page - 1) * limit;
-  const paginated = scored.slice(offset, offset + limit);
-
   return {
-    data: paginated,
+    data: scored,
     total,
     page,
     totalPages: Math.ceil(total / limit),
@@ -110,6 +135,19 @@ export async function getJobById(jobId: string): Promise<JobWithScore | null> {
 
   if (rows.length === 0) return null;
   return scoreJob(rowToJob(rows[0]));
+}
+
+export async function getJobsByIds(jobIds: string[]): Promise<JobWithScore[]> {
+  if (jobIds.length === 0) return [];
+  const pool = getPool();
+
+  const placeholders = jobIds.map((_, i) => `$${i + 1}`).join(", ");
+  const { rows } = await pool.query<JobRow>(
+    `SELECT ${LIST_COLUMNS} FROM jobs WHERE job_id IN (${placeholders}) AND is_active = TRUE`,
+    jobIds
+  );
+
+  return rows.map((r) => scoreJob(rowToJob(r, true)));
 }
 
 export async function getCompanies(): Promise<string[]> {

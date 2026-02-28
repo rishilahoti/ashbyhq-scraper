@@ -8,8 +8,6 @@ export const metadata: Metadata = {
   description: "Track and discover job opportunities from AshbyHQ",
 };
 
-export const dynamic = "force-dynamic";
-
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
