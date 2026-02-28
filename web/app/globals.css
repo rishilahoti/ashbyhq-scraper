@@ -1,0 +1,71 @@
+@import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Source+Sans+3:wght@300;400;500;600&display=swap");
+@import "tailwindcss";
+
+@theme {
+  --font-display: "Space Grotesk", sans-serif;
+  --font-body: "Source Sans 3", sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+
+  --color-paper: #FAFAF9;
+  --color-surface: #F5F5F4;
+  --color-surface-hover: #EFEFED;
+  --color-ink: #0C0A09;
+  --color-ink-secondary: #57534E;
+  --color-ink-muted: #A8A29E;
+  --color-edge: #E7E5E4;
+  --color-edge-strong: #D6D3D1;
+  --color-signal: #EA580C;
+  --color-signal-soft: #FFF7ED;
+  --color-signal-muted: #FB923C;
+  --color-positive: #16A34A;
+  --color-positive-soft: #F0FDF4;
+  --color-muted-soft: #F5F5F4;
+}
+
+* {
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html {
+  font-family: var(--font-body);
+  background: var(--color-paper);
+  color: var(--color-ink);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  min-height: 100dvh;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-display);
+  letter-spacing: -0.025em;
+}
+
+code, .mono {
+  font-family: var(--font-mono);
+}
+
+::selection {
+  background: var(--color-signal);
+  color: white;
+}
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-row {
+  animation: fade-in 0.3s ease-out both;
+}
+
+@utility container-main {
+  max-width: 72rem;
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: 1.5rem;
+  padding-right: 1.5rem;
+}

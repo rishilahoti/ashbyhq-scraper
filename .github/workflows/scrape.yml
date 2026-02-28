@@ -1,0 +1,20 @@
+name: Scrape Jobs
+
+on:
+    schedule:
+        - cron: '0 */12 * * *' # every 12 hours
+    workflow_dispatch: # manual trigger button
+
+jobs:
+    scrape:
+        runs-on: ubuntu-latest
+        timeout-minutes: 30
+        steps:
+            - uses: actions/checkout@v4
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 20
+            - run: npm ci
+            - run: node index.js run
+              env:
+                  DATABASE_URL: ${{ secrets.DATABASE_URL }}
