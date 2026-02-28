@@ -129,14 +129,13 @@ export default function Filters({
 
       {/* Tags dropdown — single selection */}
       <select
-        value={current.tags[0] ?? ""}
+        value={current.tags[0]?.toLowerCase() ?? ""}
         onChange={(e) => setTagFromDropdown(e.target.value)}
-        className="h-8 max-w-[130px] px-2 text-sm bg-surface border border-edge rounded-md
-                   text-ink-secondary focus:outline-none focus:border-edge-strong cursor-pointer"
+        className="h-8 max-w-[130px] px-2 text-sm bg-surface border border-edge rounded-md text-ink-secondary focus:outline-none focus:border-edge-strong cursor-pointer"
       >
         <option value="">All tags</option>
         {tagOptions.map((tag) => (
-          <option key={tag} value={tag}>{tag}</option>
+          <option key={tag} value={tag.toLowerCase()}>{tag}</option>
         ))}
       </select>
 

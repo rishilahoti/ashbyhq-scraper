@@ -25,10 +25,12 @@ export default async function FeedPage({
   if (sp.team) filters.team = sp.team;
   if (sp.location) filters.location = sp.location;
   if (sp.tags) {
+    const allowed = new Set(POSITIVE_TAG_OPTIONS.map((t) => t.toLowerCase()));
     filters.tags = sp.tags
       .split(",")
       .map((t) => t.trim().toLowerCase())
-      .filter(Boolean);
+      .filter((t) => t && allowed.has(t));
+      if (filters.tags.length === 0) delete filters.tags;
   }
   if (sp.sort) filters.sort = sp.sort as JobFilters["sort"];
   if (sp.page) filters.page = parseInt(sp.page, 10);

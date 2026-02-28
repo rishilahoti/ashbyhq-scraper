@@ -92,7 +92,11 @@ export async function POST(request: NextRequest) {
 
     // Case-insensitive: find existing company by slug so we reuse its name and avoid duplicates
     const existingBySlug = await pool.query(
-      "SELECT id, name, ashby_slug FROM companies WHERE LOWER(ashby_slug) = LOWER($1)",
+      `SELECT id, name, ashby_slug
+      FROM companies
+      WHERE LOWER(ashby_slug) = LOWER($1)
+      ORDER BY last_scraped_at DESC NULLS LAST, id DESC
+      LIMIT 1`,
       [slug]
     );
     const existingRow = existingBySlug.rows[0];
@@ -139,8 +143,10 @@ export async function POST(request: NextRequest) {
       );
     } else {
       await pool.query(
-        `INSERT INTO companies (name, ashby_slug, last_scraped_at)
-         VALUES ($1, $2, NOW())`,
+        `INSERT INTO companies (name, ashby_slug, last_scraped_at) 
+        VALUES ($1, $2, NOW()) 
+        ON CONFLICT (ashby_slug) DO UPDATE 
+        SET last_scraped_at = NOW()`,
         [canonicalName, slug]
       );
     }
@@ -298,10 +304,11 @@ export async function GET() {
        GROUP BY c.id, c.name, c.ashby_slug, c.last_scraped_at
        ORDER BY c.name`
     );
-    // Deduplicate by lowercase slug so "OpenAI" and "openai" show as one company (keep first by name)
+    // Deduplicate by lowercase slug so "OpenAI" and "openai" show as one company (keep one with highest job_count)
     const bySlug = new Map<string, (typeof rows)[0]>();
     for (const r of rows) {
-      const key = r.ashby_slug.toLowerCase();
+      const key = r.ashby_slug?.toLowerCase() ?? '';
+      if (!key) continue; // skip companies without a slug
       if (!bySlug.has(key)) bySlug.set(key, r);
       else {
         const existing = bySlug.get(key)!;

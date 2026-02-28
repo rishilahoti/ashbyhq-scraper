@@ -57,10 +57,15 @@ function GitHubStars() {
   const [stars, setStars] = useState<number | null>(null);
 
   useEffect(() => {
-    fetch(GITHUB_API_REPO)
-      .then((res) => res.json())
+    const controller = new AbortController();
+      fetch(GITHUB_API_REPO, { signal: controller.signal })
+      .then((res) => {
+        if (!res.ok) throw new Error("Failed to fetch");
+        return res.json();
+      })
       .then((data) => typeof data.stargazers_count === "number" && setStars(data.stargazers_count))
       .catch(() => {});
+    return () => controller.abort();
   }, []);
 
   return (
@@ -68,6 +73,7 @@ function GitHubStars() {
       href={GITHUB_REPO}
       target="_blank"
       rel="noopener noreferrer"
+      aria-label="Open GitHub repository"
       className="flex items-center rounded-md text-sm font-medium text-ink-secondary hover:text-ink hover:bg-surface transition-colors"
       title="Star on GitHub"
     >
@@ -81,7 +87,7 @@ function ThemeSwitcher({
   theme,
   setTheme,
 }: {
-  theme: string;
+  theme: "light" | "dark" | "system";
   setTheme: (t: "light" | "dark" | "system") => void;
 }) {
   return (
@@ -94,11 +100,13 @@ function ThemeSwitcher({
           key={t}
           type="button"
           onClick={() => setTheme(t)}
+          aria-label={t === "light" ? "Light theme" : t === "dark" ? "Dark theme" : "System theme"}
+          aria-pressed={theme === t}
           className={`py-1 text-xs font-medium rounded transition-colors cursor-pointer ${theme === t ? "bg-edge-strong text-ink" : "text-ink-muted hover:text-ink hover:bg-surface"}`}
           style={{ display: "flex", justifyContent: "center", alignItems: "center", paddingLeft: 6, paddingRight: 6 }}
           title={t === "system" ? "Use system preference" : t}
         >
-          <span style={{ textAlign: "center", padding: "0px"}}>
+          <span style={{ textAlign: "center", padding: "0px"}} aria-hidden="true">
             {t === "light" ? "☀" : t === "dark" ? "☾" : "◐"}
           </span>
         </button>
