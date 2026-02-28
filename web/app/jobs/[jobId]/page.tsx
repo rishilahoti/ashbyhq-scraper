@@ -4,6 +4,8 @@ import { getJobById } from "@/lib/query";
 import ScoreBadge from "@/components/ScoreBadge";
 import StatusButton from "@/components/StatusButton";
 
+export const revalidate = 600;
+
 export default async function JobDetailPage({
   params,
 }: {
